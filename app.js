@@ -1,5 +1,5 @@
-const STORAGE_KEY = "excheck_reviews";
-const AUTH_STORAGE_KEY = "excheck_auth_reports";
+const SUPABASE_URL = window.EXCHECK_SUPABASE_URL || "";
+const SUPABASE_ANON_KEY = window.EXCHECK_SUPABASE_ANON_KEY || "";
 
 const sampleData = [
   {
@@ -13,20 +13,6 @@ const sampleData = [
     proof: "Ảnh check-in có timestamp + đoạn chat xác nhận kỷ niệm 1 năm.",
     proofUrl: "https://example.com/proof/anh",
     review: "Giao tiếp ban đầu ổn nhưng dần ít chia sẻ. Không có xung đột lớn.",
-    negativeEvidence: "",
-    createdAt: new Date().toISOString(),
-  },
-  {
-    id: crypto.randomUUID(),
-    name: "T.M. Khoa",
-    location: "Đà Nẵng",
-    startYear: 2019,
-    endYear: 2021,
-    sentiment: "positive",
-    score: 4,
-    proof: "Ảnh du lịch chung + lịch sử chuyển khoản đặt phòng khách sạn.",
-    proofUrl: "https://example.com/proof/khoa",
-    review: "Tôn trọng ranh giới, cư xử tử tế. Chia tay văn minh.",
     negativeEvidence: "",
     createdAt: new Date().toISOString(),
   },
@@ -45,20 +31,6 @@ const sampleAuthReports = [
     evidenceUrl: "https://example.com/evidence/khang",
     upvotes: 3,
     downvotes: 0,
-    createdAt: new Date().toISOString(),
-  },
-  {
-    id: crypto.randomUUID(),
-    platform: "instagram",
-    displayName: "linh.28",
-    profileUrl: "https://instagram.com/linh.28",
-    normalizedProfileUrl: "https://instagram.com/linh.28",
-    verdict: "fake",
-    confidence: 4,
-    reason: "Ảnh đại diện trùng nguồn mạng, follower bất thường và chỉ nhắn tin xin tiền.",
-    evidenceUrl: "https://example.com/evidence/linh28",
-    upvotes: 5,
-    downvotes: 1,
     createdAt: new Date().toISOString(),
   },
 ];
@@ -80,31 +52,28 @@ const authFilterVerdict = document.querySelector("#authFilterVerdict");
 const authSummary = document.querySelector("#authSummary");
 const authReportList = document.querySelector("#authReportList");
 const authItemTemplate = document.querySelector("#authItemTemplate");
+const backendStatus = document.querySelector("#backendStatus");
 
-let reviews = loadData(STORAGE_KEY, sampleData);
-let authReports = loadData(AUTH_STORAGE_KEY, sampleAuthReports);
+const canUseSupabase = Boolean(SUPABASE_URL && SUPABASE_ANON_KEY && window.supabase);
+const supabaseClient = canUseSupabase
+  ? window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY)
+  : null;
 
-function loadData(key, fallback) {
-  const raw = localStorage.getItem(key);
-  if (!raw) {
-    localStorage.setItem(key, JSON.stringify(fallback));
-    return fallback;
+let reviews = [...sampleData];
+let authReports = [...sampleAuthReports];
+
+function showBackendStatus() {
+  if (supabaseClient) {
+    backendStatus.textContent = "Đang dùng Supabase (database online).";
+    backendStatus.classList.remove("pill--negative");
+    backendStatus.classList.add("pill", "pill--positive");
+    return;
   }
 
-  try {
-    const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed : [];
-  } catch {
-    return [];
-  }
-}
-
-function saveReviews() {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(reviews));
-}
-
-function saveAuthReports() {
-  localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(authReports));
+  backendStatus.textContent =
+    "Chưa cấu hình Supabase URL/ANON KEY, đang chạy tạm dữ liệu demo local.";
+  backendStatus.classList.remove("pill--positive");
+  backendStatus.classList.add("pill", "pill--negative");
 }
 
 function sentimentLabel(sentiment) {
@@ -141,6 +110,70 @@ function normalizeProfileUrl(rawUrl) {
   } catch {
     return "";
   }
+}
+
+function mapReviewRow(row) {
+  return {
+    id: row.id,
+    name: row.name,
+    location: row.location,
+    startYear: row.start_year,
+    endYear: row.end_year,
+    sentiment: row.sentiment,
+    score: row.score,
+    proof: row.proof,
+    proofUrl: row.proof_url,
+    review: row.review,
+    negativeEvidence: row.negative_evidence || "",
+    createdAt: row.created_at,
+  };
+}
+
+function mapAuthRow(row) {
+  return {
+    id: row.id,
+    platform: row.platform,
+    displayName: row.display_name || "",
+    profileUrl: row.profile_url,
+    normalizedProfileUrl: row.normalized_profile_url,
+    verdict: row.verdict,
+    confidence: row.confidence,
+    reason: row.reason,
+    evidenceUrl: row.evidence_url,
+    upvotes: row.upvotes,
+    downvotes: row.downvotes,
+    createdAt: row.created_at,
+  };
+}
+
+async function fetchReviews() {
+  if (!supabaseClient) return;
+  const { data, error } = await supabaseClient
+    .from("reviews")
+    .select("*")
+    .order("created_at", { ascending: false });
+
+  if (error) {
+    showMessage(formMessage, `Không tải được reviews: ${error.message}`, "error");
+    return;
+  }
+
+  reviews = data.map(mapReviewRow);
+}
+
+async function fetchAuthReports() {
+  if (!supabaseClient) return;
+  const { data, error } = await supabaseClient
+    .from("auth_reports")
+    .select("*")
+    .order("created_at", { ascending: false });
+
+  if (error) {
+    showMessage(authMessage, `Không tải được auth reports: ${error.message}`, "error");
+    return;
+  }
+
+  authReports = data.map(mapAuthRow);
 }
 
 function renderStats(currentList) {
@@ -285,16 +318,12 @@ function renderAuthReports() {
     const evidenceEl = node.querySelector(".auth-evidence");
     evidenceEl.href = item.evidenceUrl;
 
-    node.querySelector(".auth-upvote").addEventListener("click", () => {
-      item.upvotes += 1;
-      saveAuthReports();
-      renderAuthReports();
+    node.querySelector(".auth-upvote").addEventListener("click", async () => {
+      await voteReport(item, "up");
     });
 
-    node.querySelector(".auth-downvote").addEventListener("click", () => {
-      item.downvotes += 1;
-      saveAuthReports();
-      renderAuthReports();
+    node.querySelector(".auth-downvote").addEventListener("click", async () => {
+      await voteReport(item, "down");
     });
 
     authReportList.appendChild(node);
@@ -308,13 +337,38 @@ function showMessage(element, text, type = "ok") {
   element.style.color = type === "ok" ? "var(--success)" : "var(--danger)";
 }
 
+async function voteReport(item, direction) {
+  if (!supabaseClient) {
+    if (direction === "up") item.upvotes += 1;
+    else item.downvotes += 1;
+    renderAuthReports();
+    return;
+  }
+
+  const nextUpvotes = direction === "up" ? item.upvotes + 1 : item.upvotes;
+  const nextDownvotes = direction === "down" ? item.downvotes + 1 : item.downvotes;
+
+  const { error } = await supabaseClient
+    .from("auth_reports")
+    .update({ upvotes: nextUpvotes, downvotes: nextDownvotes })
+    .eq("id", item.id);
+
+  if (error) {
+    showMessage(authMessage, `Vote thất bại: ${error.message}`, "error");
+    return;
+  }
+
+  await fetchAuthReports();
+  renderAuthReports();
+}
+
 sentimentSelect.addEventListener("change", (e) => {
   const isNegative = e.target.value === "negative";
   negativeEvidenceWrap.classList.toggle("hidden", !isNegative);
   negativeEvidenceWrap.querySelector("textarea").required = isNegative;
 });
 
-form.addEventListener("submit", (e) => {
+form.addEventListener("submit", async (e) => {
   e.preventDefault();
   const data = new FormData(form);
 
@@ -333,22 +387,33 @@ form.addEventListener("submit", (e) => {
   }
 
   const record = {
-    id: crypto.randomUUID(),
     name: String(data.get("name")).trim(),
     location: String(data.get("location")).trim(),
-    startYear,
-    endYear,
+    start_year: startYear,
+    end_year: endYear,
     sentiment,
     score: Number(data.get("score")),
     proof: String(data.get("proof")).trim(),
-    proofUrl: String(data.get("proofUrl")).trim(),
+    proof_url: String(data.get("proofUrl")).trim(),
     review: String(data.get("review")).trim(),
-    negativeEvidence: String(data.get("negativeEvidence") || "").trim(),
-    createdAt: new Date().toISOString(),
+    negative_evidence: String(data.get("negativeEvidence") || "").trim(),
   };
 
-  reviews.push(record);
-  saveReviews();
+  if (supabaseClient) {
+    const { error } = await supabaseClient.from("reviews").insert(record);
+    if (error) {
+      showMessage(formMessage, `Đăng review thất bại: ${error.message}`, "error");
+      return;
+    }
+
+    await fetchReviews();
+  } else {
+    reviews.push({
+      id: crypto.randomUUID(),
+      ...mapReviewRow({ ...record, created_at: new Date().toISOString() }),
+    });
+  }
+
   renderList();
 
   form.reset();
@@ -358,7 +423,7 @@ form.addEventListener("submit", (e) => {
   showMessage(formMessage, "Đăng review thành công! Cảm ơn bạn đã đóng góp có trách nhiệm.");
 });
 
-authForm.addEventListener("submit", (e) => {
+authForm.addEventListener("submit", async (e) => {
   e.preventDefault();
   const data = new FormData(authForm);
 
@@ -370,25 +435,35 @@ authForm.addEventListener("submit", (e) => {
   }
 
   const report = {
-    id: crypto.randomUUID(),
     platform: String(data.get("platform")),
-    displayName: String(data.get("displayName") || "").trim(),
-    profileUrl,
-    normalizedProfileUrl,
+    display_name: String(data.get("displayName") || "").trim(),
+    profile_url: profileUrl,
+    normalized_profile_url: normalizedProfileUrl,
     verdict: String(data.get("verdict")),
     confidence: Number(data.get("confidence")),
     reason: String(data.get("reason")).trim(),
-    evidenceUrl: String(data.get("evidenceUrl")).trim(),
+    evidence_url: String(data.get("evidenceUrl")).trim(),
     upvotes: 0,
     downvotes: 0,
-    createdAt: new Date().toISOString(),
   };
 
-  authReports.push(report);
-  saveAuthReports();
+  if (supabaseClient) {
+    const { error } = await supabaseClient.from("auth_reports").insert(report);
+    if (error) {
+      showMessage(authMessage, `Gửi auth report thất bại: ${error.message}`, "error");
+      return;
+    }
+
+    await fetchAuthReports();
+  } else {
+    authReports.push({
+      id: crypto.randomUUID(),
+      ...mapAuthRow({ ...report, created_at: new Date().toISOString() }),
+    });
+  }
 
   authForm.reset();
-  authSearchInput.value = report.profileUrl;
+  authSearchInput.value = profileUrl;
   authFilterVerdict.value = "all";
   renderAuthReports();
 
@@ -401,5 +476,11 @@ filterSentiment.addEventListener("change", renderList);
 authSearchInput.addEventListener("input", renderAuthReports);
 authFilterVerdict.addEventListener("change", renderAuthReports);
 
-renderList();
-renderAuthReports();
+async function init() {
+  showBackendStatus();
+  await Promise.all([fetchReviews(), fetchAuthReports()]);
+  renderList();
+  renderAuthReports();
+}
+
+init();

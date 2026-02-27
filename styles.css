@@ -87,6 +87,11 @@ body {
   margin-top: -3px;
 }
 
+.backend-status {
+  margin: 10px 0 16px;
+  display: inline-block;
+}
+
 .form-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));

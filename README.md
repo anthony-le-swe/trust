@@ -1,27 +1,44 @@
 # review-nyc
 
-Ứng dụng web tĩnh **ExCheck** để cộng đồng chia sẻ và tra cứu review người yêu cũ theo hướng minh bạch.
+Ứng dụng web **ExCheck** để cộng đồng chia sẻ review người yêu cũ và check auth FB/Instagram (real/fake).
 
 ![ExCheck preview](assets/readme-preview.svg)
 
-## Tính năng chính
+## Stack hiện tại
 
-- Thêm review mối quan hệ cũ có cấu trúc.
-- Bắt buộc khai báo bằng chứng đã từng quen nhau.
-- Nếu review tiêu cực thì bắt buộc bổ sung bằng chứng cụ thể.
-- Tìm kiếm theo tên/khu vực và lọc theo mức đánh giá.
-- **Auth Check FB/Instagram**:
-  - Gửi báo cáo nick là `real` / `fake` / `chưa rõ` có kèm bằng chứng.
-  - Tra cứu theo link profile để xem tổng hợp cộng đồng.
-  - Có upvote/downvote cho từng báo cáo để tăng độ tin cậy xã hội.
-- Dữ liệu lưu local bằng `localStorage` để demo nhanh.
+- Frontend: HTML/CSS/JS thuần
+- Database online: **Supabase (PostgreSQL)**
+- Fallback: nếu chưa cấu hình Supabase thì chạy dữ liệu demo local
 
-## Chạy dự án
+## Tính năng
 
-Mở trực tiếp file `index.html` bằng trình duyệt hoặc chạy server tĩnh:
+- Thêm review mối quan hệ có bằng chứng.
+- Bắt buộc bằng chứng bổ sung nếu review tiêu cực.
+- Tìm kiếm/lọc review theo tên, khu vực, sentiment.
+- Gửi auth-report cho link FB/Instagram (real/fake/chưa rõ).
+- Tra cứu theo link profile + upvote/downvote từng báo cáo.
+
+## Cấu hình Supabase
+
+### 1) Tạo bảng
+
+Chạy SQL trong file `supabase/schema.sql` trên Supabase SQL Editor.
+
+### 2) Cấu hình URL + ANON KEY
+
+Mở file `config.js` và điền:
+
+```js
+window.EXCHECK_SUPABASE_URL = "https://<project-ref>.supabase.co";
+window.EXCHECK_SUPABASE_ANON_KEY = "<your-anon-key>";
+```
+
+> Không commit service_role key vào frontend.
+
+### 3) Chạy local
 
 ```bash
 python3 -m http.server 4173
 ```
 
-Sau đó truy cập `http://localhost:4173`.
+Mở `http://localhost:4173`.
