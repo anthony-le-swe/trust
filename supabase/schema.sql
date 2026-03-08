@@ -12,6 +12,9 @@ create table if not exists reviews (
   proof_url text not null,
   review text not null,
   negative_evidence text,
+  moderation_status text not null default 'public' check (moderation_status in ('public', 'pending_moderation', 'rejected')),
+  moderation_reason text,
+  is_anonymized boolean not null default false,
   created_at timestamptz not null default now()
 );
 
@@ -26,6 +29,9 @@ create table if not exists auth_reports (
   reason text not null,
   reason_hash text generated always as (md5(reason)) stored,
   evidence_url text not null,
+  moderation_status text not null default 'public' check (moderation_status in ('public', 'pending_moderation', 'rejected')),
+  moderation_reason text,
+  is_anonymized boolean not null default false,
   upvotes int not null default 0,
   downvotes int not null default 0,
   created_at timestamptz not null default now(),
@@ -58,6 +64,38 @@ alter table if exists auth_reports
 
 alter table if exists auth_reports
   add column if not exists created_day date generated always as (created_at::date) stored;
+
+alter table if exists reviews
+  add column if not exists moderation_status text not null default 'public';
+
+alter table if exists reviews
+  add column if not exists moderation_reason text;
+
+alter table if exists reviews
+  add column if not exists is_anonymized boolean not null default false;
+
+alter table if exists reviews
+  drop constraint if exists reviews_moderation_status_check;
+
+alter table if exists reviews
+  add constraint reviews_moderation_status_check
+  check (moderation_status in ('public', 'pending_moderation', 'rejected'));
+
+alter table if exists auth_reports
+  add column if not exists moderation_status text not null default 'public';
+
+alter table if exists auth_reports
+  add column if not exists moderation_reason text;
+
+alter table if exists auth_reports
+  add column if not exists is_anonymized boolean not null default false;
+
+alter table if exists auth_reports
+  drop constraint if exists auth_reports_moderation_status_check;
+
+alter table if exists auth_reports
+  add constraint auth_reports_moderation_status_check
+  check (moderation_status in ('public', 'pending_moderation', 'rejected'));
 
 -- Chặn báo cáo trùng quá dày: cùng profile + verdict + nội dung lý do trong cùng một ngày.
 create unique index if not exists auth_reports_unique_daily_report

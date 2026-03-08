@@ -62,6 +62,105 @@ const supabaseClient = canUseSupabase
 let reviews = [...sampleData];
 let authReports = [...sampleAuthReports];
 
+
+const sensitiveIdentityPatterns = [
+  {
+    name: "cccd_cmnd",
+    regex: /\b(?:\d[\s.-]?){9,12}\b/g,
+    reason: "Phát hiện chuỗi số có thể là CCCD/CMND.",
+  },
+  {
+    name: "home_address",
+    regex:
+      /\b(?:s(?:ố|o)\s*nhà|so\s*nha|địa\s*chỉ|dia\s*chi|hẻm|hem|ngõ|ngo|ngách|toà?\s*nhà|toa\s*nha|đường|duong|phường|phuong|xã|xa|quận|quan|huyện|huyen)\b/giu,
+    reason: "Phát hiện dấu hiệu địa chỉ nhà riêng chi tiết.",
+  },
+  {
+    name: "workplace",
+    regex:
+      /\b(?:công\s*ty|cong\s*ty|cty|làm\s*việc\s*tại|lam\s*viec\s*tai|nơi\s*làm\s*việc|noi\s*lam\s*viec|văn\s*phòng|van\s*phong|chi\s*nhánh|chi\s*nhanh)\b/giu,
+    reason: "Phát hiện dấu hiệu nêu nơi làm việc cụ thể.",
+  },
+];
+
+const severeAbusiveKeywords = [
+  "súc sinh",
+  "suc sinh",
+  "khốn nạn",
+  "khon nan",
+  "đồ chó",
+  "do cho",
+  "con chó",
+  "con cho",
+  "đĩ",
+  "di",
+  "cặn bã",
+  "can ba",
+];
+
+function normalizeModerationText(value) {
+  return value
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function detectSensitiveIdentityContent(text) {
+  const matches = [];
+
+  for (const rule of sensitiveIdentityPatterns) {
+    if (rule.regex.test(text)) {
+      matches.push(rule.reason);
+    }
+    rule.regex.lastIndex = 0;
+  }
+
+  return matches;
+}
+
+function detectSevereAbuse(text) {
+  const normalized = normalizeModerationText(text);
+  return severeAbusiveKeywords.filter((keyword) =>
+    normalized.includes(normalizeModerationText(keyword))
+  );
+}
+
+function moderateReviewPayload(record) {
+  const combinedText = [record.name, record.location, record.proof, record.review, record.negative_evidence]
+    .filter(Boolean)
+    .join("\n");
+
+  const sensitiveMatches = detectSensitiveIdentityContent(combinedText);
+  const abusiveMatches = detectSevereAbuse(combinedText);
+
+  if (abusiveMatches.length) {
+    return {
+      shouldReject: true,
+      moderationStatus: "rejected",
+      moderationReason: `Nội dung chứa từ ngữ xúc phạm nghiêm trọng: ${abusiveMatches.join(", ")}.`,
+      isAnonymized: false,
+    };
+  }
+
+  if (sensitiveMatches.length) {
+    return {
+      shouldReject: false,
+      moderationStatus: "pending_moderation",
+      moderationReason: sensitiveMatches.join(" "),
+      isAnonymized: false,
+    };
+  }
+
+  return {
+    shouldReject: false,
+    moderationStatus: "public",
+    moderationReason: null,
+    isAnonymized: true,
+  };
+}
+
 function showBackendStatus() {
   if (supabaseClient) {
     backendStatus.textContent = "Đang dùng Supabase (database online).";
@@ -125,6 +224,9 @@ function mapReviewRow(row) {
     proofUrl: row.proof_url,
     review: row.review,
     negativeEvidence: row.negative_evidence || "",
+    moderationStatus: row.moderation_status || "public",
+    moderationReason: row.moderation_reason || null,
+    isAnonymized: row.is_anonymized ?? false,
     createdAt: row.created_at,
   };
 }
@@ -195,6 +297,7 @@ function renderList() {
   const sentimentFilter = filterSentiment.value;
 
   const filtered = reviews
+    .filter((item) => (item.moderationStatus || "public") === "public")
     .filter((item) => {
       const matchKeyword =
         item.name.toLowerCase().includes(q) || item.location.toLowerCase().includes(q);
@@ -399,6 +502,16 @@ form.addEventListener("submit", async (e) => {
     negative_evidence: String(data.get("negativeEvidence") || "").trim(),
   };
 
+  const moderationResult = moderateReviewPayload(record);
+  record.moderation_status = moderationResult.moderationStatus;
+  record.moderation_reason = moderationResult.moderationReason;
+  record.is_anonymized = moderationResult.isAnonymized;
+
+  if (moderationResult.shouldReject) {
+    showMessage(formMessage, moderationResult.moderationReason, "error");
+    return;
+  }
+
   if (supabaseClient) {
     const { error } = await supabaseClient.from("reviews").insert(record);
     if (error) {
@@ -420,7 +533,14 @@ form.addEventListener("submit", async (e) => {
   negativeEvidenceWrap.classList.add("hidden");
   negativeEvidenceWrap.querySelector("textarea").required = false;
 
-  showMessage(formMessage, "Đăng review thành công! Cảm ơn bạn đã đóng góp có trách nhiệm.");
+  if (moderationResult.moderationStatus === "pending_moderation") {
+    showMessage(
+      formMessage,
+      "Nội dung đã được gửi và đang chờ kiểm duyệt (pending_moderation) trước khi hiển thị công khai."
+    );
+  } else {
+    showMessage(formMessage, "Đăng review thành công! Cảm ơn bạn đã đóng góp có trách nhiệm.");
+  }
 });
 
 authForm.addEventListener("submit", async (e) => {
